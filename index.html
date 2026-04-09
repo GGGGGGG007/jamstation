@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drum Monster JamStation Prototype</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        body { 
+            background: #1a1a1a; 
+            color: white; 
+            font-family: sans-serif; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            padding: 20px; 
+            margin: 0;
+        }
+        h1 { margin-bottom: 5px; }
+        p { color: #aaa; margin-bottom: 30px; font-size: 0.9rem; }
+        
+        .mixer { 
+            display: flex; 
+            gap: 30px; 
+            background: #2a2a2a; 
+            padding: 40px 50px; 
+            border-radius: 20px; 
+            border: 2px solid #444; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        
+        .channel { 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            gap: 15px; 
+        }
+        
+        .channel label {
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: #ddd;
+        }
+
+        /* 세로 슬라이더 스타일 */
+        input[type=range].volume-slider { 
+            writing-mode: bt-lr; /* IE/Edge 지원 */
+            -webkit-appearance: slider-vertical; /* 크롬/사파리 지원 */
+            width: 15px; 
+            height: 200px; 
+        }
+        
+        button { 
+            padding: 12px 20px; 
+            cursor: pointer; 
+            border-radius: 8px; 
+            border: none; 
+            font-weight: bold; 
+            transition: all 0.2s;
+        }
+        
+        .mute-btn {
+            background: #555;
+            color: white;
+            font-size: 1rem;
+            width: 100%;
+        }
+        
+        .mute-btn.active { 
+            background: #ff4757; /* 뮤트 활성화 시 빨간색 */
+            color: white; 
+            box-shadow: inset 0 3px 5px rgba(0,0,0,0.5);
+        }
+        
+        .control-panel { 
+            margin-top: 40px; 
+            text-align: center; 
+            background: #2a2a2a;
+            padding: 30px;
+            border-radius: 15px;
+            width: 100%;
+            max-width: 400px;
+        }
+        
+        .play-btn {
+            background: #2ed573; 
+            color: #000;
+            font-size: 1.5rem;
+            width: 100%;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .play-btn.playing {
+            background: #ffa502;
+            color: #fff;
+        }
+        
+        .bpm-slider { 
+            width: 100%; 
+            margin-top: 15px; 
+        }
+
+        .tempo-container {
+            background: #1a1a1a;
+            padding: 15px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🥁 Drum Monster JamStation</h1>
+    <p>재생 버튼을 누르고 드럼 MUTE 버튼과 템포 조절을 테스트해보세요.</p>
+
+    <div class="mixer">
+        <div class="channel">
+            <label>DRUM</label>
+            <input type="range" class="volume-slider" min="-60" max="0" value="-10" oninput="changeVolume('drum', this.value)">
+            <button id="drum-mute" class="mute-btn" onclick="toggleMute('drum')">MUTE</button>
+        </div>
+        
+        <div class="channel">
+            <label>BACKING</label>
+            <input type="range" class="volume-slider" min="-60" max="0" value="-10" oninput="changeVolume('backing', this.value)">
+            <button id="backing-mute" class="mute-btn" onclick="toggleMute('backing')">MUTE</button>
+        </div>
+    </div>
+
+    <div class="control-panel">
+        <button id="play-stop-btn" class="play-btn" onclick="startJam()">PLAY</button>
+        
+        <div class="tempo-container">
+            <label style="font-weight: bold;">TEMPO: <span id="bpm-val" style="color: #2ed573; font-size: 1.2rem;">120</span> BPM</label><br>
+            <input type="range" class="bpm-slider" min="60" max="180" value="120" oninput="changeTempo(this.value)">
+        </div>
+    </div>
+
+    <script>
+        // 1. 오디오 소스 설정
+        // 주의: 코드를 실행할 위치에 'audio' 폴더가 있고, 그 안에 파일이 있어야 합니다.
+        // 파일 로딩이 완료될 때까지 기다릴 수 있도록 설정합니다.
+        const players = {
+            drum: new Tone.Player({
+                url: "audio/drum.mp3", // 로컬 드럼 파일 경로
+                loop: true             // 반복 재생 켬
+            }).toDestination(),
+            
+            backing: new Tone.Player({
+                url: "audio/backing.mp3", // 로컬 백킹 트랙 파일 경로
+                loop: true                // 반복 재생 켬
+            }).toDestination()
+        };
+
+        let isPlaying = false;
+
+        // 2. 재생/정지 로직
+        async function startJam() {
+            // 브라우저의 오디오 컨텍스트가 정지되어 있다면 시작 (사용자 제스처 필수)
+            if (Tone.context.state !== 'running') {
+                await Tone.start();
+            }
+            
+            const playBtn = document.getElementById('play-stop-btn');
+
+            if (isPlaying) {
+                // 정지
+                Object.values(players).forEach(p => p.stop());
+                Tone.Transport.stop();
+                playBtn.innerText = "PLAY";
+                playBtn.classList.remove('playing');
+                isPlaying = false;
+            } else {
+                // 재생 (버퍼가 모두 로드되었는지 확인 후 재생하는 것이 좋으나, 프로토타입이므로 즉시 재생 시도)
+                const now = Tone.now() + 0.1; // 약간의 딜레이를 주어 동기화 정확도 향상
+                
+                Object.values(players).forEach(p => {
+                    p.sync().start(now);
+                });
+                
+                Tone.Transport.start();
+                playBtn.innerText = "STOP";
+                playBtn.classList.add('playing');
+                isPlaying = true;
+            }
+        }
+
+        // 3. 볼륨 조절 로직
+        function changeVolume(part, val) {
+            // Tone.js의 볼륨은 데시벨(dB) 단위입니다. (-60은 거의 묵음, 0은 원본 볼륨)
+            players[part].volume.value = val;
+        }
+
+        // 4. 뮤트 토글 로직
+        function toggleMute(part) {
+            const btn = document.getElementById(`${part}-mute`);
+            players[part].mute = !players[part].mute; // Tone.js 플레이어의 mute 속성 반전
+            btn.classList.toggle('active'); // CSS 클래스 토글로 색상 변경
+        }
+
+        // 5. 템포 조절 로직
+        function changeTempo(val) {
+            document.getElementById('bpm-val').innerText = val;
+            // Tone.js의 Transport(전체 시간 관리자)의 BPM을 변경하여 타임 스트레치 적용
+            Tone.Transport.bpm.value = val;
+        }
+    </script>
+</body>
+</html>
